@@ -30,7 +30,8 @@
 #include <sys/types.h>
 
 #include "lib/utils/interrupt_char.h"
+#include "supervisor/shared/tick.h"
 
-extern volatile uint64_t ticks_ms;
+#define mp_hal_ticks_ms()       ((mp_uint_t) supervisor_ticks_ms32())
 
 #endif // MICROPY_INCLUDED_CXD56_MPHALPORT_H

@@ -68,9 +68,11 @@ void common_hal_analogio_analogin_construct(analogio_analogin_obj_t *self, const
         mp_raise_ValueError(translate("Pin does not have ADC capabilities"));
     }
 
-    analogin_dev[self->number].fd = open(analogin_dev[pin->number].devpath, O_RDONLY);
     if (analogin_dev[self->number].fd < 0) {
-        mp_raise_ValueError(translate("Pin does not have ADC capabilities"));
+        analogin_dev[self->number].fd = open(analogin_dev[self->number].devpath, O_RDONLY);
+        if (analogin_dev[self->number].fd < 0) {
+            mp_raise_ValueError(translate("Pin does not have ADC capabilities"));
+        }
     }
 
     // SCU FIFO overwrite
@@ -81,7 +83,7 @@ void common_hal_analogio_analogin_construct(analogio_analogin_obj_t *self, const
 
     // start ADC
     ioctl(analogin_dev[self->number].fd, ANIOC_CXD56_START, 0);
-    
+
     self->pin = pin;
 }
 
@@ -95,11 +97,11 @@ void common_hal_analogio_analogin_deinit(analogio_analogin_obj_t *self) {
     close(analogin_dev[self->number].fd);
     analogin_dev[self->number].fd = -1;
 
-    self->pin = mp_const_none;
+    self->pin = NULL;
 }
 
 bool common_hal_analogio_analogin_deinited(analogio_analogin_obj_t *self) {
-    return self->pin == mp_const_none;
+    return analogin_dev[self->number].fd < 0;
 }
 
 uint16_t common_hal_analogio_analogin_get_value(analogio_analogin_obj_t *self) {

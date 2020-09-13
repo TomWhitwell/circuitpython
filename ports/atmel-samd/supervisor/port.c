@@ -24,12 +24,17 @@
  * THE SOFTWARE.
  */
 
+#include <string.h>
+#include <stdlib.h>
+
 #include "boards/board.h"
 #include "supervisor/port.h"
 
 // ASF 4
 #include "atmel_start_pins.h"
+#include "peripheral_clk_config.h"
 #include "hal/include/hal_delay.h"
+#include "hal/include/hal_flash.h"
 #include "hal/include/hal_gpio.h"
 #include "hal/include/hal_init.h"
 #include "hpl/gclk/hpl_gclk_base.h"
@@ -64,12 +69,13 @@
 #include "samd/events.h"
 #include "samd/external_interrupts.h"
 #include "samd/dma.h"
+#include "shared-bindings/microcontroller/__init__.h"
 #include "shared-bindings/rtc/__init__.h"
 #include "reset.h"
-#include "tick.h"
 
 #include "supervisor/shared/safe_mode.h"
 #include "supervisor/shared/stack.h"
+#include "supervisor/shared/tick.h"
 
 #include "tusb.h"
 
@@ -93,6 +99,87 @@ extern volatile bool mp_msc_enabled;
 #define TRACE_BUFFER_SIZE_BYTES (TRACE_BUFFER_SIZE << 2)
 __attribute__((__aligned__(TRACE_BUFFER_SIZE_BYTES))) uint32_t mtb[TRACE_BUFFER_SIZE] = {0};
 #endif
+
+#if CALIBRATE_CRYSTALLESS
+static void save_usb_clock_calibration(void) {
+    // If we are on USB lets double check our fine calibration for the clock and
+    // save the new value if its different enough.
+    SYSCTRL->DFLLSYNC.bit.READREQ = 1;
+    uint16_t saved_calibration = 0x1ff;
+    if (strcmp((char*) CIRCUITPY_INTERNAL_CONFIG_START_ADDR, "CIRCUITPYTHON1") == 0) {
+        saved_calibration = ((uint16_t *) CIRCUITPY_INTERNAL_CONFIG_START_ADDR)[8];
+    }
+    while (SYSCTRL->PCLKSR.bit.DFLLRDY == 0) {
+        // TODO(tannewt): Run the mass storage stuff if this takes a while.
+    }
+    int16_t current_calibration = SYSCTRL->DFLLVAL.bit.FINE;
+    if (abs(current_calibration - saved_calibration) > 10) {
+        // Copy the full internal config page to memory.
+        uint8_t page_buffer[NVMCTRL_ROW_SIZE];
+        memcpy(page_buffer, (uint8_t*) CIRCUITPY_INTERNAL_CONFIG_START_ADDR, NVMCTRL_ROW_SIZE);
+
+        // Modify it.
+        memcpy(page_buffer, "CIRCUITPYTHON1", 15);
+        // First 16 bytes (0-15) are ID. Little endian!
+        page_buffer[16] = current_calibration & 0xff;
+        page_buffer[17] = current_calibration >> 8;
+
+        // Write it back.
+        // We don't use features that use any advanced NVMCTRL features so we can fake the descriptor
+        // whenever we need it instead of storing it long term.
+        struct flash_descriptor desc;
+        desc.dev.hw = NVMCTRL;
+        flash_write(&desc, (uint32_t) CIRCUITPY_INTERNAL_CONFIG_START_ADDR, page_buffer, NVMCTRL_ROW_SIZE);
+    }
+}
+#endif
+
+static void rtc_init(void) {
+#ifdef SAMD21
+    _gclk_enable_channel(RTC_GCLK_ID, GCLK_CLKCTRL_GEN_GCLK2_Val);
+    RTC->MODE0.CTRL.bit.SWRST = true;
+    while (RTC->MODE0.CTRL.bit.SWRST != 0) {}
+
+    RTC->MODE0.CTRL.reg = RTC_MODE0_CTRL_ENABLE |
+                     RTC_MODE0_CTRL_MODE_COUNT32 |
+                     RTC_MODE0_CTRL_PRESCALER_DIV2;
+#endif
+#ifdef SAMD51
+    hri_mclk_set_APBAMASK_RTC_bit(MCLK);
+    RTC->MODE0.CTRLA.bit.SWRST = true;
+    while (RTC->MODE0.SYNCBUSY.bit.SWRST != 0) {}
+
+    RTC->MODE0.CTRLA.reg = RTC_MODE0_CTRLA_ENABLE |
+                     RTC_MODE0_CTRLA_MODE_COUNT32 |
+                     RTC_MODE0_CTRLA_PRESCALER_DIV2 |
+                     RTC_MODE0_CTRLA_COUNTSYNC;
+#endif
+
+    RTC->MODE0.INTENSET.reg = RTC_MODE0_INTENSET_OVF;
+
+    // Set all peripheral interrupt priorities to the lowest priority by default.
+    for (uint16_t i = 0; i < PERIPH_COUNT_IRQn; i++) {
+        NVIC_SetPriority(i, (1UL << __NVIC_PRIO_BITS) - 1UL);
+    }
+    // Bump up the rtc interrupt so nothing else interferes with timekeeping.
+    NVIC_SetPriority(RTC_IRQn, 0);
+    #ifdef SAMD21
+    NVIC_SetPriority(USB_IRQn, 1);
+    #endif
+
+    #ifdef SAMD51
+    NVIC_SetPriority(USB_0_IRQn, 1);
+    NVIC_SetPriority(USB_1_IRQn, 1);
+    NVIC_SetPriority(USB_2_IRQn, 1);
+    NVIC_SetPriority(USB_3_IRQn, 1);
+    #endif
+    NVIC_ClearPendingIRQ(RTC_IRQn);
+    NVIC_EnableIRQ(RTC_IRQn);
+#if CIRCUITPY_RTC
+    rtc_reset();
+#endif
+
+}
 
 safe_mode_t port_init(void) {
 #if defined(SAMD21)
@@ -168,22 +255,26 @@ safe_mode_t port_init(void) {
     hri_nvmctrl_set_CTRLB_RWS_bf(NVMCTRL, 2);
     _pm_init();
 #endif
-    clock_init();
 
-    // Configure millisecond timer initialization.
-    tick_init();
-
-#if CIRCUITPY_RTC
-    rtc_init();
+#if CALIBRATE_CRYSTALLESS
+    uint32_t fine = DEFAULT_DFLL48M_FINE_CALIBRATION;
+    // The fine calibration data is stored in an NVM page after the text and data storage but before
+    // the optional file system. The first 16 bytes are the identifier for the section.
+    if (strcmp((char*) CIRCUITPY_INTERNAL_CONFIG_START_ADDR, "CIRCUITPYTHON1") == 0) {
+        fine = ((uint16_t *) CIRCUITPY_INTERNAL_CONFIG_START_ADDR)[8];
+    }
+    clock_init(BOARD_HAS_CRYSTAL, fine);
+#else
+    // Use a default fine value
+    clock_init(BOARD_HAS_CRYSTAL, DEFAULT_DFLL48M_FINE_CALIBRATION);
 #endif
+
+    rtc_init();
 
     init_shared_dma();
 
     // Reset everything into a known state before board_init.
     reset_port();
-
-    // Init the board last so everything else is ready
-    board_init();
 
     #ifdef SAMD21
     if (PM->RCAUSE.bit.BOD33 == 1 || PM->RCAUSE.bit.BOD12 == 1) {
@@ -220,6 +311,7 @@ void reset_port(void) {
 #endif
     eic_reset();
 #if CIRCUITPY_PULSEIO
+    pulsein_reset();
     pulseout_reset();
     pwmout_reset();
 #endif
@@ -227,9 +319,6 @@ void reset_port(void) {
 #if CIRCUITPY_ANALOGIO
     analogin_reset();
     analogout_reset();
-#endif
-#if CIRCUITPY_RTC
-    rtc_reset();
 #endif
 
     reset_gclks();
@@ -257,9 +346,11 @@ void reset_port(void) {
     // gpio_set_pin_function(PIN_PB15, GPIO_PIN_FUNCTION_M); // GCLK1, D6
     // #endif
 
+#if CALIBRATE_CRYSTALLESS
     if (tud_cdc_connected()) {
         save_usb_clock_calibration();
     }
+#endif
 }
 
 void reset_to_bootloader(void) {
@@ -269,6 +360,26 @@ void reset_to_bootloader(void) {
 
 void reset_cpu(void) {
     reset();
+}
+
+supervisor_allocation* port_fixed_stack(void) {
+    return NULL;
+}
+
+uint32_t *port_stack_get_limit(void) {
+    return &_ebss;
+}
+
+uint32_t *port_stack_get_top(void) {
+    return &_estack;
+}
+
+uint32_t *port_heap_get_bottom(void) {
+    return port_stack_get_limit();
+}
+
+uint32_t *port_heap_get_top(void) {
+    return port_stack_get_top();
 }
 
 // Place the word to save 8k from the end of RAM so we and the bootloader don't clobber it.
@@ -285,6 +396,113 @@ void port_set_saved_word(uint32_t value) {
 
 uint32_t port_get_saved_word(void) {
     return *safe_word;
+}
+
+// TODO: Move this to an RTC backup register so we can preserve it when only the BACKUP power domain
+// is enabled.
+static volatile uint64_t overflowed_ticks = 0;
+static volatile bool _ticks_enabled = false;
+
+void RTC_Handler(void) {
+    uint32_t intflag = RTC->MODE0.INTFLAG.reg;
+    if (intflag & RTC_MODE0_INTFLAG_OVF) {
+        RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_OVF;
+        // Our RTC is 32 bits and we're clocking it at 16.384khz which is 16 (2 ** 4) subticks per
+        // tick.
+        overflowed_ticks += (1L<< (32 - 4));
+    #ifdef SAMD51
+    } else if (intflag & RTC_MODE0_INTFLAG_PER2) {
+        RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_PER2;
+        // Do things common to all ports when the tick occurs
+        supervisor_tick();
+    #endif
+    } else if (intflag & RTC_MODE0_INTFLAG_CMP0) {
+        // Clear the interrupt because we may have hit a sleep and _ticks_enabled
+        RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_CMP0;
+        #ifdef SAMD21
+        if (_ticks_enabled) {
+            // Do things common to all ports when the tick occurs.
+            supervisor_tick();
+            // Check _ticks_enabled again because a tick handler may have turned it off.
+            if (_ticks_enabled) {
+                port_interrupt_after_ticks(1);
+            }
+        }
+        #endif
+        #ifdef SAMD51
+        RTC->MODE0.INTENCLR.reg = RTC_MODE0_INTENCLR_CMP0;
+        #endif
+    }
+}
+
+static uint32_t _get_count(void) {
+    #ifdef SAMD51
+    while ((RTC->MODE0.SYNCBUSY.reg & (RTC_MODE0_SYNCBUSY_COUNTSYNC | RTC_MODE0_SYNCBUSY_COUNT)) != 0) {}
+    #endif
+    #ifdef SAMD21
+    while (RTC->MODE0.STATUS.bit.SYNCBUSY != 0) {}
+    #endif
+
+    return RTC->MODE0.COUNT.reg;
+}
+
+uint64_t port_get_raw_ticks(uint8_t* subticks) {
+    uint32_t current_ticks = _get_count();
+    if (subticks != NULL) {
+        *subticks = (current_ticks % 16) * 2;
+    }
+
+    return overflowed_ticks + current_ticks / 16;
+}
+
+// Enable 1/1024 second tick.
+void port_enable_tick(void) {
+    #ifdef SAMD51
+    // PER2 will generate an interrupt every 32 ticks of the source 32.768 clock.
+    RTC->MODE0.INTENSET.reg = RTC_MODE0_INTENSET_PER2;
+    #endif
+    #ifdef SAMD21
+    _ticks_enabled = true;
+    port_interrupt_after_ticks(1);
+    #endif
+}
+
+// Disable 1/1024 second tick.
+void port_disable_tick(void) {
+    #ifdef SAMD51
+    RTC->MODE0.INTENCLR.reg = RTC_MODE0_INTENCLR_PER2;
+    #endif
+    #ifdef SAMD21
+    _ticks_enabled = false;
+    RTC->MODE0.INTENCLR.reg = RTC_MODE0_INTENCLR_CMP0;
+    #endif
+}
+
+void port_interrupt_after_ticks(uint32_t ticks) {
+    uint32_t current_ticks = _get_count();
+    if (ticks > 1 << 28) {
+        // We'll interrupt sooner with an overflow.
+        return;
+    }
+    RTC->MODE0.COMP[0].reg = current_ticks + (ticks << 4);
+    RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_CMP0;
+    RTC->MODE0.INTENSET.reg = RTC_MODE0_INTENSET_CMP0;
+}
+
+void port_sleep_until_interrupt(void) {
+    #ifdef SAMD51
+    // Clear the FPU interrupt because it can prevent us from sleeping.
+    if (__get_FPSCR()  & ~(0x9f)) {
+        __set_FPSCR(__get_FPSCR()  & ~(0x9f));
+        (void) __get_FPSCR();
+    }
+    #endif
+    common_hal_mcu_disable_interrupts();
+    if (!tud_task_event_ready()) {
+        __DSB();
+        __WFI();
+    }
+    common_hal_mcu_enable_interrupts();
 }
 
 /**

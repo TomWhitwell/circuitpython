@@ -1,4 +1,3 @@
-LD_FILE = boards/samd21x18-bootloader.ld
 USB_VID = 0x239A
 USB_PID = 0x801F
 USB_PRODUCT = "Trinket M0"
@@ -9,6 +8,11 @@ CHIP_FAMILY = samd21
 
 INTERNAL_FLASH_FILESYSTEM = 1
 LONGINT_IMPL = NONE
-CIRCUITPY_SMALL_BUILD = 1
+CIRCUITPY_FULL_BUILD = 0
 
 SUPEROPT_GC = 0
+
+CFLAGS_BOARD = --param max-inline-insns-auto=15
+ifeq ($(TRANSLATION), zh_Latn_pinyin)
+CFLAGS_INLINE_LIMIT = 35
+endif

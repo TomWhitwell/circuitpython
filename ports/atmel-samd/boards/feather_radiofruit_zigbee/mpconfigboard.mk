@@ -1,4 +1,3 @@
-LD_FILE = boards/samd21x18-bootloader-external-flash.ld
 USB_VID = 0x239A
 USB_PID = 0x8023
 USB_PRODUCT = "Feather RadioFruit Zigbee"
@@ -16,3 +15,6 @@ LONGINT_IMPL = MPZ
 CIRCUITPY_AUDIOBUSIO = 0
 # No DAC on SAMR21G
 CIRCUITPY_AUDIOIO = 0
+
+# Too much flash for Korean translations
+CIRCUITPY_VECTORIO = 0

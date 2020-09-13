@@ -35,28 +35,24 @@
 #include "py/stream.h"
 #include "supervisor/shared/translate.h"
 
-
-//| .. currentmodule:: usb_midi
+//| class PortOut:
+//|     """Sends midi messages to a computer over USB"""
 //|
-//| :class:`PortOut` -- sends midi messages to a computer over USB
-//| ==============================================================
+//|     def __init__(self, ):
+//|         """You cannot create an instance of `usb_midi.PortOut`.
 //|
-//| .. class:: PortOut()
-//|
-//|   You cannot create an instance of `usb_midi.PortOut`.
-//|
-//|   PortOut objects are constructed for every corresponding entry in the USB
-//|   descriptor and added to the ``usb_midi.ports`` tuple.
+//|         PortOut objects are constructed for every corresponding entry in the USB
+//|         descriptor and added to the ``usb_midi.ports`` tuple."""
 //|
 
 // These are standard stream methods. Code is in py/stream.c.
 //
-//|   .. method:: write(buf)
+//|     def write(self, buf: Any) -> Any:
+//|         """Write the buffer of bytes to the bus.
 //|
-//|     Write the buffer of bytes to the bus.
-//|
-//|     :return: the number of bytes written
-//|     :rtype: int or None
+//|         :return: the number of bytes written
+//|         :rtype: int or None"""
+//|         ...
 //|
 
 STATIC mp_uint_t usb_midi_portout_write(mp_obj_t self_in, const void *buf_in, mp_uint_t size, int *errcode) {
@@ -89,6 +85,7 @@ STATIC const mp_rom_map_elem_t usb_midi_portout_locals_dict_table[] = {
 STATIC MP_DEFINE_CONST_DICT(usb_midi_portout_locals_dict, usb_midi_portout_locals_dict_table);
 
 STATIC const mp_stream_p_t usb_midi_portout_stream_p = {
+    MP_PROTO_IMPLEMENT(MP_QSTR_protocol_stream)
     .read = NULL,
     .write = usb_midi_portout_write,
     .ioctl = usb_midi_portout_ioctl,

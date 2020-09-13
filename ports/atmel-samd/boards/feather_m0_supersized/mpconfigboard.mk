@@ -1,4 +1,3 @@
-LD_FILE = boards/samd21x18-bootloader-external-flash.ld
 USB_VID = 0x239A
 USB_PID = 0x8023
 USB_PRODUCT = "Feather M0 Supersized"
@@ -15,6 +14,8 @@ LONGINT_IMPL = MPZ
 CIRCUITPY_BITBANGIO = 0
 CIRCUITPY_FREQUENCYIO = 0
 CIRCUITPY_I2CSLAVE = 0
+# supersized, not ultra-supersized
+CIRCUITPY_VECTORIO = 0
 
 CFLAGS_INLINE_LIMIT = 60
 SUPEROPT_GC = 0

@@ -41,8 +41,10 @@ typedef struct {
 
     uint8_t left_channel_number;
     uint8_t right_channel_number;
-    uint8_t spacing;
+    uint8_t sample_channel_count;
     uint8_t bytes_per_sample;
+
+    IRQn_Type pwm_irq;
 
     bool playing;
     bool stopping;

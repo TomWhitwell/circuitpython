@@ -36,6 +36,7 @@
 #include "shared-bindings/audiopwmio/PWMAudioOut.h"
 #include "shared-bindings/microcontroller/__init__.h"
 #include "shared-bindings/microcontroller/Pin.h"
+#include "supervisor/shared/tick.h"
 #include "supervisor/shared/translate.h"
 
 // TODO: This should be the same size as PWMOut.c:pwms[], but there's no trivial way to accomplish that
@@ -67,26 +68,32 @@ STATIC void activate_audiopwmout_obj(audiopwmio_pwmaudioout_obj_t *self) {
     for (size_t i=0; i < MP_ARRAY_SIZE(active_audio); i++) {
         if (!active_audio[i]) {
             active_audio[i] = self;
+            supervisor_enable_tick();
             break;
         }
     }
 }
 STATIC void deactivate_audiopwmout_obj(audiopwmio_pwmaudioout_obj_t *self) {
+    // Turn off the interrupts to the CPU.
+    self->pwm->INTENCLR = PWM_INTENSET_SEQSTARTED0_Msk | PWM_INTENSET_SEQSTARTED1_Msk;
     for (size_t i=0; i < MP_ARRAY_SIZE(active_audio); i++) {
         if (active_audio[i] == self) {
             active_audio[i] = NULL;
+            supervisor_disable_tick();
         }
     }
 }
 
 void audiopwmout_reset() {
     for (size_t i=0; i < MP_ARRAY_SIZE(active_audio); i++) {
+        if (active_audio[i]) {
+            supervisor_disable_tick();
+        }
         active_audio[i] = NULL;
     }
 }
 
 STATIC void fill_buffers(audiopwmio_pwmaudioout_obj_t *self, int buf) {
-    self->pwm->EVENTS_SEQSTARTED[1-buf] = 0;
     uint16_t *dev_buffer = self->buffers[buf];
     uint8_t *buffer;
     uint32_t buffer_length;
@@ -97,27 +104,28 @@ STATIC void fill_buffers(audiopwmio_pwmaudioout_obj_t *self, int buf) {
         common_hal_audiopwmio_pwmaudioout_stop(self);
         return;
     }
-    uint32_t num_samples = buffer_length / self->bytes_per_sample / self->spacing;
+    uint32_t num_samples = buffer_length / self->bytes_per_sample / self->sample_channel_count;
+    uint16_t *end_dev_buffer = dev_buffer + 2 * num_samples;
 
     if (self->bytes_per_sample == 1) {
         uint8_t offset = self->signed_to_unsigned ? 0x80 : 0;
         uint16_t scale = self->scale;
-        for (uint32_t i=0; i<buffer_length/self->spacing; i++) {
+        while (dev_buffer < end_dev_buffer) {
             uint8_t rawval = (*buffer++ + offset);
             uint16_t val = (uint16_t)(((uint32_t)rawval * (uint32_t)scale) >> 8);
             *dev_buffer++ = val;
-            if (self->spacing == 1)
+            if (self->sample_channel_count == 1)
                 *dev_buffer++ = val;
         }
     } else {
         uint16_t offset = self->signed_to_unsigned ? 0x8000 : 0;
         uint16_t scale = self->scale;
         uint16_t *buffer16 = (uint16_t*)buffer;
-        for (uint32_t i=0; i<buffer_length/2/self->spacing; i++) {
+        while (dev_buffer < end_dev_buffer) {
             uint16_t rawval = (*buffer16++ + offset);
             uint16_t val = (uint16_t)((rawval * (uint32_t)scale) >> 16);
             *dev_buffer++ = val;
-            if (self->spacing == 1)
+            if (self->sample_channel_count == 1)
                 *dev_buffer++ = val;
         }
     }
@@ -142,23 +150,38 @@ STATIC void audiopwmout_background_obj(audiopwmio_pwmaudioout_obj_t *self) {
         if (stopped)
             self->pwm->TASKS_STOP = 1;
     } else if (!self->paused && !self->single_buffer) {
-        if (self->pwm->EVENTS_SEQSTARTED[0]) fill_buffers(self, 1);
-        if (self->pwm->EVENTS_SEQSTARTED[1]) fill_buffers(self, 0);
+        if (self->pwm->EVENTS_SEQSTARTED[0]) {
+            fill_buffers(self, 1);
+            self->pwm->EVENTS_SEQSTARTED[0] = 0;
+        }
+        if (self->pwm->EVENTS_SEQSTARTED[1]) {
+            fill_buffers(self, 0);
+            self->pwm->EVENTS_SEQSTARTED[1] = 0;
+        }
+        NVIC_ClearPendingIRQ(self->pwm_irq);
     }
 }
 
 void audiopwmout_background() {
+    // Check the NVIC first because it is part of the CPU and fast to read.
+    if (!NVIC_GetPendingIRQ(PWM0_IRQn) &&
+        !NVIC_GetPendingIRQ(PWM1_IRQn) &&
+        !NVIC_GetPendingIRQ(PWM2_IRQn) &&
+        !NVIC_GetPendingIRQ(PWM3_IRQn)) {
+        return;
+    }
+    // Check our objects because the PWM could be active for some other reason.
     for (size_t i=0; i < MP_ARRAY_SIZE(active_audio); i++) {
         if (!active_audio[i]) continue;
         audiopwmout_background_obj(active_audio[i]);
     }
 }
 
+// Caller validates that pins are free.
 void common_hal_audiopwmio_pwmaudioout_construct(audiopwmio_pwmaudioout_obj_t* self,
         const mcu_pin_obj_t* left_channel, const mcu_pin_obj_t* right_channel, uint16_t quiescent_value) {
-    assert_pin_free(left_channel);
-    assert_pin_free(right_channel);
-    self->pwm = pwmout_allocate(256, PWM_PRESCALER_PRESCALER_DIV_1, true, NULL, NULL);
+    self->pwm = pwmout_allocate(256, PWM_PRESCALER_PRESCALER_DIV_1, true, NULL, NULL,
+                                &self->pwm_irq);
     if (!self->pwm) {
         mp_raise_RuntimeError(translate("All timers in use"));
     }
@@ -224,16 +247,15 @@ void common_hal_audiopwmio_pwmaudioout_play(audiopwmio_pwmaudioout_obj_t* self, 
     self->loop = loop;
 
     uint32_t sample_rate = audiosample_sample_rate(sample);
-    uint32_t max_sample_rate = 62500;
-    if (sample_rate > max_sample_rate) {
-        mp_raise_ValueError_varg(translate("Sample rate too high. It must be less than %d"), max_sample_rate);
-    }
     self->bytes_per_sample = audiosample_bits_per_sample(sample) / 8;
 
     uint32_t max_buffer_length;
+    uint8_t spacing;
     audiosample_get_buffer_structure(sample, /* single channel */ false,
         &self->single_buffer, &self->signed_to_unsigned, &max_buffer_length,
-        &self->spacing);
+        &spacing);
+    self->sample_channel_count = audiosample_channel_count(sample);
+
     if (max_buffer_length > UINT16_MAX) {
         mp_raise_ValueError_varg(translate("Buffer length %d too big. It must be less than %d"), max_buffer_length, UINT16_MAX);
     }
@@ -251,16 +273,21 @@ void common_hal_audiopwmio_pwmaudioout_play(audiopwmio_pwmaudioout_obj_t* self, 
     self->pwm->LOOP = 1;
     audiosample_reset_buffer(self->sample, false, 0);
     activate_audiopwmout_obj(self);
+    self->stopping = false;
+    self->pwm->SHORTS = NRF_PWM_SHORT_LOOPSDONE_SEQSTART0_MASK;
     fill_buffers(self, 0);
     self->pwm->SEQ[1].PTR = self->pwm->SEQ[0].PTR;
     self->pwm->SEQ[1].CNT = self->pwm->SEQ[0].CNT;
     self->pwm->EVENTS_SEQSTARTED[0] = 0;
     self->pwm->EVENTS_SEQSTARTED[1] = 0;
+    self->pwm->EVENTS_SEQEND[0] = 0;
+    self->pwm->EVENTS_SEQEND[1] = 0;
     self->pwm->EVENTS_STOPPED = 0;
-    self->pwm->SHORTS = NRF_PWM_SHORT_LOOPSDONE_SEQSTART0_MASK;
+    // Enable the SEQSTARTED interrupts so that they wake the CPU and keep it awake until serviced.
+    // We don't enable them in the NVIC because we don't actually want an interrupt routine to run.
+    self->pwm->INTENSET = PWM_INTENSET_SEQSTARTED0_Msk | PWM_INTENSET_SEQSTARTED1_Msk;
     self->pwm->TASKS_SEQSTART[0] = 1;
     self->playing = true;
-    self->stopping = false;
     self->paused = false;
 }
 

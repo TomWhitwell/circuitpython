@@ -29,58 +29,38 @@
 #include "py/objproperty.h"
 #include "py/runtime.h"
 #include "shared-bindings/_bleio/Characteristic.h"
-#include "shared-bindings/_bleio/Peripheral.h"
 #include "shared-bindings/_bleio/Service.h"
 #include "shared-bindings/_bleio/UUID.h"
 
-//| .. currentmodule:: _bleio
+//| class Service:
+//|     """Stores information about a BLE service and its characteristics."""
 //|
-//| :class:`Service` -- BLE service
-//| =========================================================
+//|     def __init__(self, uuid: UUID, *, secondary: bool = False):
+//|         """Create a new Service identified by the specified UUID. It can be accessed by all
+//|         connections. This is known as a Service server. Client Service objects are created via
+//|         `Connection.discover_remote_services`.
 //|
-//| Stores information about a BLE service and its characteristics.
+//|         To mark the Service as secondary, pass `True` as :py:data:`secondary`.
 //|
-//| .. class:: Service
+//|         :param UUID uuid: The uuid of the service
+//|         :param bool secondary: If the service is a secondary one
 //|
-//|   There is no regular constructor for a Service. A new local Service can be created
-//|   and attached to a Peripheral by calling `add_to_peripheral()`.
-//|   Remote Service objects are created by `Central.discover_remote_services()`
-//|   or `Peripheral.discover_remote_services()`.
+//|         :return: the new Service"""
+//|         ...
 //|
-//|   .. classmethod:: add_to_peripheral(peripheral, uuid, *, secondary=False)
-//|
-//|     Create a new Service object, identitied by the specified UUID, and add it
-//|     to the given Peripheral.
-//|
-//|     To mark the service as secondary, pass `True` as :py:data:`secondary`.
-//|
-//|     :param Peripheral peripheral: The peripheral that will provide this service
-//|     :param UUID uuid: The uuid of the service
-//|     :param bool secondary: If the service is a secondary one
-//
-//|     :return: the new Service
-//|
-STATIC mp_obj_t bleio_service_add_to_peripheral(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    // class is arg[0], which we can ignore.
-
-    enum { ARG_peripheral, ARG_uuid, ARG_secondary };
+STATIC mp_obj_t bleio_service_make_new(const mp_obj_type_t *type, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    enum { ARG_uuid, ARG_secondary };
     static const mp_arg_t allowed_args[] = {
-        { MP_QSTR_peripheral, MP_ARG_REQUIRED | MP_ARG_OBJ,},
         { MP_QSTR_uuid, MP_ARG_REQUIRED | MP_ARG_OBJ },
         { MP_QSTR_secondary, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false} },
     };
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
-    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
-
-    const mp_obj_t peripheral_obj = args[ARG_peripheral].u_obj;
-    if (!MP_OBJ_IS_TYPE(peripheral_obj, &bleio_peripheral_type)) {
-        mp_raise_ValueError(translate("Expected a Peripheral"));
-    }
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
     const mp_obj_t uuid_obj = args[ARG_uuid].u_obj;
     if (!MP_OBJ_IS_TYPE(uuid_obj, &bleio_uuid_type)) {
-        mp_raise_ValueError(translate("Expected a UUID"));
+        mp_raise_TypeError(translate("Expected a UUID"));
     }
 
     const bool is_secondary = args[ARG_secondary].u_bool;
@@ -88,19 +68,14 @@ STATIC mp_obj_t bleio_service_add_to_peripheral(size_t n_args, const mp_obj_t *p
     bleio_service_obj_t *service = m_new_obj(bleio_service_obj_t);
     service->base.type = &bleio_service_type;
 
-    common_hal_bleio_service_construct(
-        service, MP_OBJ_TO_PTR(peripheral_obj), MP_OBJ_TO_PTR(uuid_obj), is_secondary);
-
-    common_hal_bleio_peripheral_add_service(peripheral_obj, service);
+    common_hal_bleio_service_construct(service, MP_OBJ_TO_PTR(uuid_obj), is_secondary);
 
     return MP_OBJ_FROM_PTR(service);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(bleio_service_add_to_peripheral_fun_obj, 3, bleio_service_add_to_peripheral);
-STATIC MP_DEFINE_CONST_CLASSMETHOD_OBJ(bleio_service_add_to_peripheral_obj, MP_ROM_PTR(&bleio_service_add_to_peripheral_fun_obj));
 
-//|   .. attribute:: characteristics
-//|
-//|     A tuple of :py:class:`Characteristic` designating the characteristics that are offered by this service. (read-only)
+//|     characteristics: Any = ...
+//|     """A tuple of :py:class:`Characteristic` designating the characteristics that are offered by
+//|     this service. (read-only)"""
 //|
 STATIC mp_obj_t bleio_service_get_characteristics(mp_obj_t self_in) {
     bleio_service_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -117,9 +92,8 @@ const mp_obj_property_t bleio_service_characteristics_obj = {
                (mp_obj_t)&mp_const_none_obj },
 };
 
-//|   .. attribute:: remote
-//|
-//|     True if this is a service provided by a remote device. (read-only)
+//|     remote: Any = ...
+//|     """True if this is a service provided by a remote device. (read-only)"""
 //|
 STATIC mp_obj_t bleio_service_get_remote(mp_obj_t self_in) {
     bleio_service_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -135,9 +109,8 @@ const mp_obj_property_t bleio_service_remote_obj = {
                (mp_obj_t)&mp_const_none_obj },
 };
 
-//|   .. attribute:: secondary
-//|
-//|     True if this is a secondary service. (read-only)
+//|     secondary: Any = ...
+//|     """True if this is a secondary service. (read-only)"""
 //|
 STATIC mp_obj_t bleio_service_get_secondary(mp_obj_t self_in) {
     bleio_service_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -153,10 +126,10 @@ const mp_obj_property_t bleio_service_secondary_obj = {
                (mp_obj_t)&mp_const_none_obj },
 };
 
-//|   .. attribute:: uuid
+//|     uuid: Any = ...
+//|     """The UUID of this service. (read-only)
 //|
-//|     The UUID of this service. (read-only)
-//|       Will be ``None`` if the 128-bit UUID for this service is not known.
+//|     Will be ``None`` if the 128-bit UUID for this service is not known."""
 //|
 STATIC mp_obj_t bleio_service_get_uuid(mp_obj_t self_in) {
     bleio_service_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -175,10 +148,10 @@ const mp_obj_property_t bleio_service_uuid_obj = {
 
 
 STATIC const mp_rom_map_elem_t bleio_service_locals_dict_table[] = {
-    { MP_ROM_QSTR(MP_QSTR_add_to_peripheral), MP_ROM_PTR(&bleio_service_add_to_peripheral_obj) },
     { MP_ROM_QSTR(MP_QSTR_characteristics),   MP_ROM_PTR(&bleio_service_characteristics_obj) },
     { MP_ROM_QSTR(MP_QSTR_secondary),         MP_ROM_PTR(&bleio_service_secondary_obj) },
     { MP_ROM_QSTR(MP_QSTR_uuid),              MP_ROM_PTR(&bleio_service_uuid_obj) },
+    { MP_ROM_QSTR(MP_QSTR_remote),              MP_ROM_PTR(&bleio_service_remote_obj) },
 };
 STATIC MP_DEFINE_CONST_DICT(bleio_service_locals_dict, bleio_service_locals_dict_table);
 
@@ -196,6 +169,25 @@ STATIC void bleio_service_print(const mp_print_t *print, mp_obj_t self_in, mp_pr
 const mp_obj_type_t bleio_service_type = {
     { &mp_type_type },
     .name = MP_QSTR_Service,
+    .make_new = bleio_service_make_new,
     .print = bleio_service_print,
     .locals_dict = (mp_obj_dict_t*)&bleio_service_locals_dict
 };
+
+// Helper for classes that store lists of services.
+mp_obj_tuple_t* service_linked_list_to_tuple(bleio_service_obj_t * services) {
+    // Return list as a tuple so user won't be able to change it.
+    bleio_service_obj_t *head = services;
+    size_t len = 0;
+    while (head != NULL) {
+        len++;
+        head = head->next;
+    }
+    mp_obj_tuple_t * t = MP_OBJ_TO_PTR(mp_obj_new_tuple(len, NULL));
+    head = services;
+    for (int32_t i = len - 1; i >= 0; i--) {
+        t->items[i] = MP_OBJ_FROM_PTR(head);
+        head = head->next;
+    }
+    return t;
+}

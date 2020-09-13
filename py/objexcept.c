@@ -112,17 +112,23 @@ void mp_obj_exception_print(const mp_print_t *print, mp_obj_t o_in, mp_print_kin
         if (o->args == NULL || o->args->len == 0) {
             mp_print_str(print, "");
             return;
-        } else if (o->args->len == 1) {
+        }
+        if (MP_OBJ_IS_SMALL_INT(o->args->items[0]) &&
+            mp_obj_is_subclass_fast(MP_OBJ_FROM_PTR(o->base.type), MP_OBJ_FROM_PTR(&mp_type_OSError)) &&
+            o->args->len <= 2) {
             // try to provide a nice OSError error message
-            if (MP_OBJ_IS_SMALL_INT(o->args->items[0]) &&
-                mp_obj_is_subclass_fast(MP_OBJ_FROM_PTR(o->base.type), MP_OBJ_FROM_PTR(&mp_type_OSError))) {
-                char decompressed[50];
-                const char *msg = mp_common_errno_to_str(o->args->items[0], decompressed, sizeof(decompressed));
-                if (msg != NULL) {
-                    mp_printf(print, "[Errno " INT_FMT "] %s", MP_OBJ_SMALL_INT_VALUE(o->args->items[0]), msg);
-                    return;
+            char decompressed[50];
+            const char *msg = mp_common_errno_to_str(o->args->items[0], decompressed, sizeof(decompressed));
+            if (msg != NULL) {
+                mp_printf(print, "[Errno " INT_FMT "] %s", MP_OBJ_SMALL_INT_VALUE(o->args->items[0]), msg);
+                // if second arg exists, it is filename.
+                if (o->args->len == 2) {
+                    mp_printf(print, ": '%s'", mp_obj_str_get_str(o->args->items[1]));
                 }
+                return;
             }
+        }
+        if (o->args->len == 1) {
             mp_obj_print_helper(print, o->args->items[0], PRINT_STR);
             return;
         }
@@ -394,7 +400,7 @@ mp_obj_t mp_obj_new_exception_msg_vlist(const mp_obj_type_t *exc_type, const com
 
     // Try to allocate memory for the message
     mp_obj_str_t *o_str = m_new_obj_maybe(mp_obj_str_t);
-    size_t o_str_alloc = fmt->length + 1;
+    size_t o_str_alloc = decompress_length(fmt);
     byte *o_str_buf = m_new_maybe(byte, o_str_alloc);
 
     bool used_emg_buf = false;
@@ -427,7 +433,7 @@ mp_obj_t mp_obj_new_exception_msg_vlist(const mp_obj_type_t *exc_type, const com
         // We have some memory to format the string
         struct _exc_printer_t exc_pr = {!used_emg_buf, o_str_alloc, 0, o_str_buf};
         mp_print_t print = {&exc_pr, exc_add_strn};
-        char fmt_decompressed[fmt->length];
+        char fmt_decompressed[decompress_length(fmt)];
         decompress(fmt, fmt_decompressed);
         mp_vprintf(&print, fmt_decompressed, ap);
         exc_pr.buf[exc_pr.len] = '\0';

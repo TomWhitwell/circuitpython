@@ -1,4 +1,3 @@
-LD_FILE = boards/samd21x18-bootloader-external-flash-crystalless.ld
 USB_VID = 0x239A
 USB_PID = 0x8012
 USB_PRODUCT = "ItsyBitsy M0 Express"
@@ -18,7 +17,8 @@ CIRCUITPY_BITBANGIO = 0
 CIRCUITPY_GAMEPAD = 0
 CIRCUITPY_I2CSLAVE = 0
 CIRCUITPY_RTC = 0
+# too itsy bitsy for all of displayio
+CIRCUITPY_VECTORIO = 0
 
 CFLAGS_INLINE_LIMIT = 60
 SUPEROPT_GC = 0
-

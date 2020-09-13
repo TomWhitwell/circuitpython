@@ -1,4 +1,3 @@
-LD_FILE = boards/samd21x18-bootloader-external-flash.ld
 USB_VID = 0x239A
 USB_PID = 0xD1ED
 USB_PRODUCT = "HalloWing M0 Express"
@@ -20,8 +19,10 @@ CIRCUITPY_GAMEPAD = 0
 CIRCUITPY_I2CSLAVE = 0
 CIRCUITPY_ROTARYIO = 0
 CIRCUITPY_RTC = 0
+CIRCUITPY_COUNTIO = 0
+CIRCUITPY_VECTORIO = 0
 
-CFLAGS_INLINE_LIMIT = 60
+CFLAGS_INLINE_LIMIT = 55
 SUPEROPT_GC = 0
 
 # Include these Python libraries in firmware.

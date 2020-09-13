@@ -3,7 +3,7 @@ CircuitPython
 
 .. image:: https://s3.amazonaws.com/adafruit-circuit-python/CircuitPython_Repo_header_logo.png
 
-|Build Status| |Doc Status| |License| |Discord|
+|Build Status| |Doc Status| |License| |Discord| |Weblate|
 
 `circuitpython.org <https://circuitpython.org>`__ \| `Get CircuitPython <#get-circuitpython>`__ \|
 `Documentation <#documentation>`__ \| `Contributing <#contributing>`__ \|
@@ -94,13 +94,12 @@ Differences from `MicroPython <https://github.com/micropython/micropython>`__
 
 CircuitPython:
 
--  includes ports for MicroChip SAMD21 (Commonly known as M0 in Adafruit
-   product names) and SAMD51 (M4).
--  supports only SAMD21, SAMD51, and nRF52840 ports.
--  tracks MicroPython's releases (not master).
--  floats (aka decimals) are enabled for all builds.
--  error messages are translated into 10+ languages.
--  does not support concurrency within Python (including interrupts and threading). Some concurrency
+-  Supports native USB on all boards, allowing file editing without special tools.
+-  Supports only SAMD21, SAMD51, nRF52840, CXD56, STM32F4 and i.MX RT ports.
+-  Tracks MicroPython's releases (not master).
+-  Floats (aka decimals) are enabled for all builds.
+-  Error messages are translated into 10+ languages.
+-  Does not support concurrency within Python (including interrupts and threading). Some concurrency
    is achieved with native modules for tasks that require it such as audio file playback.
 
 Behavior
@@ -220,3 +219,5 @@ The remaining port directories not listed above are in the repo to maintain comp
    :target: https://adafru.it/discord
 .. |License| image:: https://img.shields.io/badge/License-MIT-brightgreen.svg
    :target: https://choosealicense.com/licenses/mit/
+.. |Weblate| image:: https://hosted.weblate.org/widgets/circuitpython/-/svg-badge.svg
+   :target: https://hosted.weblate.org/engage/circuitpython/?utm_source=widget

@@ -48,7 +48,6 @@ BASE_CFLAGS = \
 	-D__$(CHIP_VARIANT)__ \
 	-ffunction-sections \
 	-fdata-sections \
-	-fshort-enums \
 	-DCIRCUITPY_SOFTWARE_SAFE_MODE=0x0ADABEEF \
 	-DCIRCUITPY_CANARY_WORD=0xADAF00 \
 	-DCIRCUITPY_SAFE_RESTART_WORD=0xDEADBEEF \
@@ -99,6 +98,9 @@ endif
 ###
 # Select which builtin modules to compile and include.
 
+ifeq ($(CIRCUITPY_AESIO),1)
+SRC_PATTERNS += aesio/%
+endif
 ifeq ($(CIRCUITPY_ANALOGIO),1)
 SRC_PATTERNS += analogio/%
 endif
@@ -117,6 +119,9 @@ endif
 ifeq ($(CIRCUITPY_AUDIOMIXER),1)
 SRC_PATTERNS += audiomixer/%
 endif
+ifeq ($(CIRCUITPY_AUDIOMP3),1)
+SRC_PATTERNS += audiomp3/%
+endif
 ifeq ($(CIRCUITPY_BITBANGIO),1)
 SRC_PATTERNS += bitbangio/%
 endif
@@ -133,11 +138,20 @@ endif
 ifeq ($(CIRCUITPY_BUSIO),1)
 SRC_PATTERNS += busio/% bitbangio/OneWire.%
 endif
+ifeq ($(CIRCUITPY_COUNTIO),1)
+SRC_PATTERNS += countio/%
+endif
 ifeq ($(CIRCUITPY_DIGITALIO),1)
 SRC_PATTERNS += digitalio/%
 endif
 ifeq ($(CIRCUITPY_DISPLAYIO),1)
 SRC_PATTERNS += displayio/% terminalio/% fontio/%
+endif
+ifeq ($(CIRCUITPY_VECTORIO),1)
+SRC_PATTERNS += vectorio/%
+endif
+ifeq ($(CIRCUITPY_FRAMEBUFFERIO),1)
+SRC_PATTERNS += framebufferio/%
 endif
 ifeq ($(CIRCUITPY_FREQUENCYIO),1)
 SRC_PATTERNS += frequencyio/%
@@ -153,6 +167,9 @@ SRC_PATTERNS += i2cslave/%
 endif
 ifeq ($(CIRCUITPY_MATH),1)
 SRC_PATTERNS += math/%
+endif
+ifeq ($(CIRCUITPY__EVE),1)
+SRC_PATTERNS += _eve/%
 endif
 ifeq ($(CIRCUITPY_MICROCONTROLLER),1)
 SRC_PATTERNS += microcontroller/%
@@ -171,6 +188,9 @@ SRC_PATTERNS += os/%
 endif
 ifeq ($(CIRCUITPY_PIXELBUF),1)
 SRC_PATTERNS += _pixelbuf/%
+endif
+ifeq ($(CIRCUITPY_RGBMATRIX),1)
+SRC_PATTERNS += rgbmatrix/%
 endif
 ifeq ($(CIRCUITPY_PULSEIO),1)
 SRC_PATTERNS += pulseio/%
@@ -220,6 +240,9 @@ endif
 ifeq ($(CIRCUITPY_USTACK),1)
 SRC_PATTERNS += ustack/%
 endif
+ifeq ($(CIRCUITPY_WATCHDOG),1)
+SRC_PATTERNS += watchdog/%
+endif
 ifeq ($(CIRCUITPY_PEW),1)
 SRC_PATTERNS += _pew/%
 endif
@@ -229,12 +252,11 @@ SRC_COMMON_HAL_ALL = \
 	_bleio/__init__.c \
 	_bleio/Adapter.c \
 	_bleio/Attribute.c \
-	_bleio/Central.c \
 	_bleio/Characteristic.c \
 	_bleio/CharacteristicBuffer.c \
+	_bleio/Connection.c \
 	_bleio/Descriptor.c \
-	_bleio/Peripheral.c \
-	_bleio/Scanner.c \
+	_bleio/PacketBuffer.c \
 	_bleio/Service.c \
 	_bleio/UUID.c \
 	analogio/AnalogIn.c \
@@ -252,6 +274,8 @@ SRC_COMMON_HAL_ALL = \
 	busio/SPI.c \
 	busio/UART.c \
 	busio/__init__.c \
+	countio/Counter.c \
+	countio/__init__.c \
 	digitalio/DigitalInOut.c \
 	digitalio/__init__.c \
 	displayio/ParallelBus.c \
@@ -266,6 +290,8 @@ SRC_COMMON_HAL_ALL = \
 	nvm/ByteArray.c \
 	nvm/__init__.c \
 	os/__init__.c \
+	rgbmatrix/RGBMatrix.c \
+	rgbmatrix/__init__.c \
 	pulseio/PWMOut.c \
 	pulseio/PulseIn.c \
 	pulseio/PulseOut.c \
@@ -278,7 +304,9 @@ SRC_COMMON_HAL_ALL = \
 	rtc/__init__.c \
 	supervisor/Runtime.c \
 	supervisor/__init__.c \
-	time/__init__.c
+	watchdog/__init__.c \
+	watchdog/WatchDogMode.c \
+	watchdog/WatchDogTimer.c \
 
 SRC_COMMON_HAL = $(filter $(SRC_PATTERNS), $(SRC_COMMON_HAL_ALL))
 
@@ -296,17 +324,17 @@ $(filter $(SRC_PATTERNS), \
 	fontio/Glyph.c \
 	microcontroller/RunMode.c \
 	math/__init__.c \
-	supervisor/__init__.c \
+	_eve/__init__.c \
 )
 
 SRC_BINDINGS_ENUMS += \
-	help.c \
 	util.c
 
 SRC_SHARED_MODULE_ALL = \
 	_bleio/Address.c \
 	_bleio/Attribute.c \
 	_bleio/ScanEntry.c \
+	_bleio/ScanResults.c \
 	_pixelbuf/PixelBuf.c \
 	_pixelbuf/__init__.c \
 	_stage/Layer.c \
@@ -320,12 +348,16 @@ SRC_SHARED_MODULE_ALL = \
 	audiomixer/__init__.c \
 	audiomixer/Mixer.c \
 	audiomixer/MixerVoice.c \
+	audiomp3/__init__.c \
+	audiomp3/MP3Decoder.c \
 	bitbangio/I2C.c \
 	bitbangio/OneWire.c \
 	bitbangio/SPI.c \
 	bitbangio/__init__.c \
 	board/__init__.c \
 	busio/OneWire.c \
+	aesio/__init__.c \
+	aesio/aes.c \
 	displayio/Bitmap.c \
 	displayio/ColorConverter.c \
 	displayio/Display.c \
@@ -338,8 +370,15 @@ SRC_SHARED_MODULE_ALL = \
 	displayio/Shape.c \
 	displayio/TileGrid.c \
 	displayio/__init__.c \
+    vectorio/Circle.c \
+    vectorio/Rectangle.c \
+    vectorio/Polygon.c \
+    vectorio/VectorShape.c \
+    vectorio/__init__.c \
 	fontio/BuiltinFont.c \
 	fontio/__init__.c \
+	framebufferio/FramebufferDisplay.c \
+	framebufferio/__init__.c \
 	gamepad/GamePad.c \
 	gamepad/__init__.c \
 	gamepadshift/GamePadShift.c \
@@ -348,14 +387,18 @@ SRC_SHARED_MODULE_ALL = \
 	random/__init__.c \
 	socket/__init__.c \
 	network/__init__.c \
+	rgbmatrix/RGBMatrix.c \
+	rgbmatrix/__init__.c \
 	storage/__init__.c \
 	struct/__init__.c \
+	time/__init__.c \
 	terminalio/Terminal.c \
 	terminalio/__init__.c \
 	uheap/__init__.c \
 	ustack/__init__.c \
 	_pew/__init__.c \
-	_pew/PewPew.c
+	_pew/PewPew.c \
+	_eve/__init__.c
 
 # All possible sources are listed here, and are filtered by SRC_PATTERNS.
 SRC_SHARED_MODULE = $(filter $(SRC_PATTERNS), $(SRC_SHARED_MODULE_ALL))
@@ -371,6 +414,32 @@ else
 SRC_SHARED_MODULE_ALL += \
 	touchio/TouchIn.c \
 	touchio/__init__.c
+endif
+ifeq ($(CIRCUITPY_AUDIOMP3),1)
+SRC_MOD += $(addprefix lib/mp3/src/, \
+	bitstream.c \
+	buffers.c \
+	dct32.c \
+	dequant.c \
+	dqchan.c \
+	huffman.c \
+	hufftabs.c \
+	imdct.c \
+	mp3dec.c \
+	mp3tabs.c \
+	polyphase.c \
+	scalfact.c \
+	stproc.c \
+	subband.c \
+	trigtabs.c \
+)
+$(BUILD)/lib/mp3/src/buffers.o: CFLAGS += -include "py/misc.h" -D'MPDEC_ALLOCATOR(x)=m_malloc(x,0)' -D'MPDEC_FREE(x)=m_free(x)'
+endif
+ifeq ($(CIRCUITPY_RGBMATRIX),1)
+SRC_MOD += $(addprefix lib/protomatter/, \
+	core.c \
+)
+$(BUILD)/lib/protomatter/core.o: CFLAGS += -include "shared-module/rgbmatrix/allocator.h" -DCIRCUITPY -Wno-missing-braces
 endif
 
 # All possible sources are listed here, and are filtered by SRC_PATTERNS.
@@ -402,6 +471,31 @@ $(addprefix lib/,\
 	libm/atanf.c \
 	libm/atan2f.c \
 	)
+ifeq ($(CIRCUITPY_ULAB),1)
+SRC_LIBM += \
+$(addprefix lib/,\
+	libm/acoshf.c \
+	libm/asinhf.c \
+	libm/atanhf.c \
+	libm/erf_lgamma.c \
+	libm/log1pf.c \
+	libm/sf_erf.c \
+	libm/wf_lgamma.c \
+	libm/wf_tgamma.c \
+	)
+endif
+endif
+
+ifdef LD_TEMPLATE_FILE
+# Generate a linker script (.ld file) from a template, for those builds that use it.
+GENERATED_LD_FILE = $(BUILD)/$(notdir $(patsubst %.template.ld,%.ld,$(LD_TEMPLATE_FILE)))
+#
+# ld_defines.pp is generated from ld_defines.c. See py/mkrules.mk.
+# Run gen_ld_files.py over ALL *.template.ld files, not just LD_TEMPLATE_FILE,
+# because it may include other template files.
+$(GENERATED_LD_FILE): $(BUILD)/ld_defines.pp boards/*.template.ld
+	$(STEPECHO) "GEN $@"
+	$(Q)$(PYTHON3) $(TOP)/tools/gen_ld_files.py --defines $< --out_dir $(BUILD) boards/*.template.ld
 endif
 
 .PHONY: check-release-needs-clean-build

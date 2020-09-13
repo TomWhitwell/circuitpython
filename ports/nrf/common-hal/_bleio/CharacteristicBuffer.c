@@ -35,22 +35,20 @@
 #include "py/runtime.h"
 #include "py/stream.h"
 
-#include "tick.h"
-
 #include "shared-bindings/_bleio/__init__.h"
+#include "shared-bindings/_bleio/Connection.h"
+#include "supervisor/shared/tick.h"
 #include "common-hal/_bleio/CharacteristicBuffer.h"
 
+// Push all the data onto the ring buffer. When the buffer is full, new bytes will be dropped.
 STATIC void write_to_ringbuf(bleio_characteristic_buffer_obj_t *self, uint8_t *data, uint16_t len) {
-    // Push all the data onto the ring buffer.
     uint8_t is_nested_critical_region;
     sd_nvic_critical_region_enter(&is_nested_critical_region);
-    for (size_t i = 0; i < len; i++) {
-        ringbuf_put(&self->ringbuf, data[i]);
-    }
+    ringbuf_put_n(&self->ringbuf, data, len);
     sd_nvic_critical_region_exit(is_nested_critical_region);
 }
 
-STATIC void characteristic_buffer_on_ble_evt(ble_evt_t *ble_evt, void *param) {
+STATIC bool characteristic_buffer_on_ble_evt(ble_evt_t *ble_evt, void *param) {
     bleio_characteristic_buffer_obj_t *self = (bleio_characteristic_buffer_obj_t *) param;
     switch (ble_evt->header.evt_id) {
         case BLE_GATTS_EVT_WRITE: {
@@ -75,7 +73,11 @@ STATIC void characteristic_buffer_on_ble_evt(ble_evt_t *ble_evt, void *param) {
             }
             break;
         }
+        default:
+            return false;
+            break;
     }
+    return true;
 }
 
 // Assumes that timeout and buffer_size have been validated before call.
@@ -94,11 +96,11 @@ void common_hal_bleio_characteristic_buffer_construct(bleio_characteristic_buffe
 
 }
 
-int common_hal_bleio_characteristic_buffer_read(bleio_characteristic_buffer_obj_t *self, uint8_t *data, size_t len, int *errcode) {
-    uint64_t start_ticks = ticks_ms;
+uint32_t common_hal_bleio_characteristic_buffer_read(bleio_characteristic_buffer_obj_t *self, uint8_t *data, size_t len, int *errcode) {
+    uint64_t start_ticks = supervisor_ticks_ms64();
 
     // Wait for all bytes received or timeout
-    while ( (ringbuf_count(&self->ringbuf) < len) && (ticks_ms - start_ticks < self->timeout_ms) ) {
+    while ( (ringbuf_num_filled(&self->ringbuf) < len) && (supervisor_ticks_ms64() - start_ticks < self->timeout_ms) ) {
         RUN_BACKGROUND_TASKS;
         // Allow user to break out of a timeout with a KeyboardInterrupt.
         if ( mp_hal_is_interrupted() ) {
@@ -110,21 +112,18 @@ int common_hal_bleio_characteristic_buffer_read(bleio_characteristic_buffer_obj_
     uint8_t is_nested_critical_region;
     sd_nvic_critical_region_enter(&is_nested_critical_region);
 
-    size_t rx_bytes = MIN(ringbuf_count(&self->ringbuf), len);
-    for ( size_t i = 0; i < rx_bytes; i++ ) {
-        data[i] = ringbuf_get(&self->ringbuf);
-    }
+    uint32_t num_bytes_read = ringbuf_get_n(&self->ringbuf, data, len);
 
     // Writes now OK.
     sd_nvic_critical_region_exit(is_nested_critical_region);
 
-    return rx_bytes;
+    return num_bytes_read;
 }
 
 uint32_t common_hal_bleio_characteristic_buffer_rx_characters_available(bleio_characteristic_buffer_obj_t *self) {
     uint8_t is_nested_critical_region;
     sd_nvic_critical_region_enter(&is_nested_critical_region);
-    uint16_t count = ringbuf_count(&self->ringbuf);
+    uint16_t count = ringbuf_num_filled(&self->ringbuf);
     sd_nvic_critical_region_exit(is_nested_critical_region);
     return count;
 }
@@ -150,6 +149,7 @@ void common_hal_bleio_characteristic_buffer_deinit(bleio_characteristic_buffer_o
 bool common_hal_bleio_characteristic_buffer_connected(bleio_characteristic_buffer_obj_t *self) {
     return self->characteristic != NULL &&
         self->characteristic->service != NULL &&
-        self->characteristic->service->device != NULL &&
-        common_hal_bleio_device_get_conn_handle(self->characteristic->service->device) != BLE_CONN_HANDLE_INVALID;
+        (!self->characteristic->service->is_remote ||
+         (self->characteristic->service->connection != MP_OBJ_NULL &&
+          common_hal_bleio_connection_get_connected(self->characteristic->service->connection)));
 }

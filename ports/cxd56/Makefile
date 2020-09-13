@@ -67,13 +67,13 @@ PLATFORM := $(firstword $(subst _, ,$(shell uname -s 2>/dev/null)))
 
 ifeq ($(PLATFORM),Darwin)
   # macOS
-  MKSPK = $(SPRESENSE_SDK)/sdk/tools/macos/mkspk
+  MKSPK = mkspk/mkspk
 else ifeq ($(PLATFORM),Linux)
   # Linux
-  MKSPK = $(SPRESENSE_SDK)/sdk/tools/linux/mkspk
+  MKSPK = mkspk/mkspk
 else
   # Cygwin/MSYS2
-  MKSPK = $(SPRESENSE_SDK)/sdk/tools/windows/mkspk.exe
+  MKSPK = mkspk/mkspk.exe
 endif
 
 SERIAL ?= /dev/ttyUSB0
@@ -90,6 +90,7 @@ INC += \
 	-I$(SPRESENSE_SDK)/nuttx/include \
 	-I$(SPRESENSE_SDK)/nuttx/arch \
 	-I$(SPRESENSE_SDK)/nuttx/arch/chip \
+	-I$(SPRESENSE_SDK)/nuttx/arch/os \
 	-I$(SPRESENSE_SDK)/sdk/bsp/include \
 	-I$(SPRESENSE_SDK)/sdk/bsp/include/sdk \
 
@@ -124,13 +125,13 @@ LDFLAGS = \
 	--entry=__start \
 	-nostartfiles \
 	-nodefaultlibs \
-	--defsym __stack=_vectors+786432 \
 	-T$(SPRESENSE_SDK)/nuttx/build/ramconfig.ld \
 	--gc-sections \
 	-Map=$(BUILD)/output.map \
 	-o $(BUILD)/firmware.elf \
 	--start-group \
 	-u spresense_main \
+	-u board_timerhook \
 	$(BUILD)/libmpy.a \
 	$(SPRESENSE_SDK)/sdk/libs/libapps.a \
 	$(SPRESENSE_SDK)/sdk/libs/libsdk.a \
@@ -151,7 +152,6 @@ SRC_SHARED_MODULE_EXPANDED = $(addprefix shared-bindings/, $(SRC_SHARED_MODULE))
 SRC_S = supervisor/cpu.s
 
 SRC_C = \
-	tick.c \
 	background.c \
 	fatfs_port.c \
 	mphalport.c \
@@ -175,11 +175,15 @@ OBJ = $(PY_O) $(SUPERVISOR_O) $(addprefix $(BUILD)/, $(SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(SRC_S:.s=.o))
 OBJ += $(addprefix $(BUILD)/, $(SRC_COMMON_HAL_EXPANDED:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(SRC_SHARED_MODULE_EXPANDED:.c=.o))
+ifeq ($(INTERNAL_LIBM),1)
+OBJ += $(addprefix $(BUILD)/, $(SRC_LIBM:.c=.o))
+endif
+OBJ += $(addprefix $(BUILD)/, $(SRC_MOD:.c=.o))
 
 # List of sources for qstr extraction
 SRC_QSTR += $(SRC_C) $(SRC_SUPERVISOR) $(SRC_COMMON_HAL_EXPANDED) $(SRC_SHARED_MODULE_EXPANDED)
 # Sources that only hold QSTRs after pre-processing.
-SRC_QSTR_PREPROCESSOR += 
+SRC_QSTR_PREPROCESSOR +=
 
 all: $(BUILD)/firmware.spk
 
@@ -192,7 +196,7 @@ $(FIRMWARE):
 	$(ECHO) "run make flash-bootloader again to flash bootloader."
 	exit 1
 
-$(BUILD)/libmpy.a: $(SPRESENSE_SDK) $(OBJ) 
+$(BUILD)/libmpy.a: $(SPRESENSE_SDK) $(OBJ)
 	$(ECHO) "AR $@"
 	$(Q)$(AR) rcs $(BUILD)/libmpy.a $(OBJ)
 
@@ -200,7 +204,10 @@ $(BUILD)/firmware.elf: $(BUILD)/libmpy.a
 	$(ECHO) "LD $@"
 	$(Q)$(LD) $(LDFLAGS)
 
-$(BUILD)/firmware.spk: $(BUILD)/firmware.elf
+$(MKSPK):
+	$(MAKE) -C mkspk
+
+$(BUILD)/firmware.spk: $(BUILD)/firmware.elf $(MKSPK)
 	$(ECHO) "Creating $@"
 	$(MKSPK) -c 2 $(BUILD)/firmware.elf nuttx $(BUILD)/firmware.spk
 

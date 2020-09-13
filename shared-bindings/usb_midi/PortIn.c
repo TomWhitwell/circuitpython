@@ -35,39 +35,36 @@
 #include "py/stream.h"
 #include "supervisor/shared/translate.h"
 
-
-//| .. currentmodule:: usb_midi
+//| class PortIn:
+//|     """Receives midi commands over USB"""
 //|
-//| :class:`PortIn` -- receives midi commands over USB
-//| ===================================================
+//|     def __init__(self):
+//|         """You cannot create an instance of `usb_midi.PortIn`.
 //|
-//| .. class:: PortIn()
-//|
-//|   You cannot create an instance of `usb_midi.PortIn`.
-//|
-//|   PortIn objects are constructed for every corresponding entry in the USB
-//|   descriptor and added to the ``usb_midi.ports`` tuple.
+//|         PortIn objects are constructed for every corresponding entry in the USB
+//|         descriptor and added to the ``usb_midi.ports`` tuple."""
+//|         ...
 //|
 
 // These are standard stream methods. Code is in py/stream.c.
 //
-//|   .. method:: read(nbytes=None)
+//|     def read(self, nbytes: Any = None) -> Any:
+//|         """Read characters.  If ``nbytes`` is specified then read at most that many
+//|         bytes. Otherwise, read everything that arrives until the connection
+//|         times out. Providing the number of bytes expected is highly recommended
+//|         because it will be faster.
 //|
-//|     Read characters.  If ``nbytes`` is specified then read at most that many
-//|     bytes. Otherwise, read everything that arrives until the connection
-//|     times out. Providing the number of bytes expected is highly recommended
-//|     because it will be faster.
+//|         :return: Data read
+//|         :rtype: bytes or None"""
+//|         ...
 //|
-//|     :return: Data read
-//|     :rtype: bytes or None
+//|     def readinto(self, buf: Any, nbytes: Any = None) -> Any:
+//|         """Read bytes into the ``buf``.  If ``nbytes`` is specified then read at most
+//|         that many bytes.  Otherwise, read at most ``len(buf)`` bytes.
 //|
-//|   .. method:: readinto(buf, nbytes=None)
-//|
-//|     Read bytes into the ``buf``.  If ``nbytes`` is specified then read at most
-//|     that many bytes.  Otherwise, read at most ``len(buf)`` bytes.
-//|
-//|     :return: number of bytes read and stored into ``buf``
-//|     :rtype: bytes or None
+//|         :return: number of bytes read and stored into ``buf``
+//|         :rtype: bytes or None"""
+//|         ...
 //|
 
 // These three methods are used by the shared stream methods.
@@ -107,6 +104,7 @@ STATIC const mp_rom_map_elem_t usb_midi_portin_locals_dict_table[] = {
 STATIC MP_DEFINE_CONST_DICT(usb_midi_portin_locals_dict, usb_midi_portin_locals_dict_table);
 
 STATIC const mp_stream_p_t usb_midi_portin_stream_p = {
+    MP_PROTO_IMPLEMENT(MP_QSTR_protocol_stream)
     .read = usb_midi_portin_read,
     .write = NULL,
     .ioctl = usb_midi_portin_ioctl,

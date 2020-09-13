@@ -1,4 +1,3 @@
-LD_FILE = boards/samd21x18-bootloader-external-flash.ld
 USB_VID = 0x1B4F
 USB_PID = 0x0017
 USB_PRODUCT = "LUMIDrive Board"
@@ -14,5 +13,6 @@ LONGINT_IMPL = MPZ
 
 CIRCUITPY_AUDIOIO = 0
 CIRCUITPY_AUDIOBUSIO = 0
+CIRCUITPY_VECTORIO = 0
 
 FROZEN_MPY_DIRS += $(TOP)/frozen/Adafruit_CircuitPython_DotStar
